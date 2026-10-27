@@ -1,13 +1,14 @@
+// Add these to your React Navigation imports:
+import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   StyleSheet, Text, View, FlatList, Image, TouchableOpacity, 
   RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform 
 } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { fetchArticles, Article } from './services/feed';
@@ -19,14 +20,20 @@ import { BookmarkProvider } from './BookmarkContext';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,  // Shows the popup banner at the top
+    shouldShowList: true,    // Shows it in the notification center
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
 });
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+type RootTabParamList = {
+  Home: undefined;
+  Saved: undefined;
+  Settings: undefined;
+};
+const Tab = createBottomTabNavigator<RootTabParamList>();
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
 
@@ -108,15 +115,21 @@ function HomeScreen({ navigation }: any) {
             projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
           })).data;
           
-          Alert.alert("Your Push Token", token);
-        } catch (e: any) {
-          // This will now show us the REAL error!
-          Alert.alert("Error", e.message || JSON.stringify(e)); 
-        }
-      }
+              // Check if we have shown the token before
+    const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
+
+    // Only show the alert if it hasn't been shown before
+    if (hasShownToken !== 'true') {
+      Alert.alert("Your Push Token", token);
+      // Save the flag so it never shows again
+      await AsyncStorage.setItem('has_shown_push_token', 'true');
+          } // <-- This closes the IF statement
+      
+    } catch (e: any) { 
+      // This will catch any errors
+      Alert.alert("Error", e.message || JSON.stringify(e));
     }
-    requestPermissions();
-  }, []);
+  } // <-- This closes the requestPermissions function
 
   const loadData = async () => {
     try {
@@ -261,12 +274,17 @@ function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.subText,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: any;
-          if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
-          else if (route.name === 'Saved') iconName = focused ? 'bookmark' : 'bookmark-outline';
-          else if (route.name === 'Settings') iconName = focused ? 'settings' : 'settings-outline';
-          return <Ionicons name={iconName} size={24} color={color} />;
+                   let iconName: any; // <-- Added :any here
+
+            if (route.name === 'Home') {
+              iconName = focused ? 'home' : 'home-outline';
+            } else if (route.name === 'Saved') {
+              iconName = focused ? 'bookmark' : 'bookmark-outline';
+            } else if (route.name === 'Settings') {
+              iconName = focused ? 'settings' : 'settings-outline';
+            }
+
+            return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
     >
