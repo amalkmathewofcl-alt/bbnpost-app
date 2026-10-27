@@ -17,7 +17,8 @@ module.exports = {
     android: {
       adaptiveIcon: {
         foregroundImage: "./assets/android-icon-foreground.png",
-        backgroundColor: "#ffffff"
+        backgroundImage: "./assets/android-icon-background.png",
+        monochromeImage: "./assets/android-icon-monochrome.png"
       },
       package: "com.amak_mathew.bbnpostapp",
       permissions: ["NOTIFICATIONS"],

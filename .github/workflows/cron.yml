@@ -5,6 +5,10 @@ on:
     - cron: '0 * * * *'
   workflow_dispatch:
 
+# 👇 This is the new block that gives it permission to push
+permissions:
+  contents: write
+
 jobs:
   check-feed:
     runs-on: ubuntu-latest
