@@ -274,17 +274,18 @@ function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.subText,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-                   let iconName: any; // <-- Added :any here
+                tabBarIcon: ({ focused, color, size }) => {
+          let iconName: any;
 
-            if (route.name === 'Home') {
-              iconName = focused ? 'home' : 'home-outline';
-            } else if (route.name === 'Saved') {
-              iconName = focused ? 'bookmark' : 'bookmark-outline';
-            } else if (route.name === 'Settings') {
-              iconName = focused ? 'settings' : 'settings-outline';
-            }
+          if (route.name === 'Home') {
+            iconName = focused ? 'home' : 'home-outline';
+          } else if (route.name === 'Saved') {
+            iconName = focused ? 'bookmark' : 'bookmark-outline';
+          } else if (route.name === 'Settings') {
+            iconName = focused ? 'settings' : 'settings-outline';
+          }
 
-            return <Ionicons name={iconName} size={24} color={color} />;
+          return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
     >
