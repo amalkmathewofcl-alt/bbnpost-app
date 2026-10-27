@@ -1,0 +1,28 @@
+name: Hourly News Check
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-feed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run notification script
+        run: node notify.js
+
+      - name: Commit last_post.json
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add last_post.json
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last post ID" && git push)
