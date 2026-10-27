@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "410487669625",
+    "project_id": "bbn-post",
+    "storage_bucket": "bbn-post.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:410487669625:android:38cb65768f14e2ce5fe5a8",
+        "android_client_info": {
+          "package_name": "com.amak_mathew.bbnpostapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCl54gaWVj8HPH0iPONtRZw7eJquhg1HSs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

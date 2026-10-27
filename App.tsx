@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   StyleSheet, Text, View, FlatList, Image, TouchableOpacity, 
-  RefreshControl, StatusBar, ScrollView, Dimensions, Animated 
+  RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform 
 } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { fetchArticles, Article } from './services/feed';
 import ArticleScreen from './ArticleScreen';
 import SettingsScreen from './SettingsScreen';
@@ -15,10 +17,48 @@ import SavedScreen from './SavedScreen';
 import { ThemeProvider, useTheme } from './ThemeContext';
 import { BookmarkProvider } from './BookmarkContext';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
+
+const Ticker = ({ title }: { title: string }) => {
+  const animatedValue = useRef(new Animated.Value(width)).current;
+  const [textWidth, setTextWidth] = useState(0);
+
+  useEffect(() => {
+    if (textWidth > 0) {
+      animatedValue.setValue(width);
+      Animated.loop(
+        Animated.timing(animatedValue, {
+          toValue: -textWidth,
+          duration: 12000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      ).start();
+    }
+  }, [textWidth, title]);
+
+  return (
+    <View style={{ flex: 1, overflow: 'hidden', height: 20, justifyContent: 'center' }}>
+      <Animated.Text
+        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
+        style={{ color: '#fff', fontSize: 13, fontWeight: '600', transform: [{ translateX: animatedValue }] }}
+      >
+        • {title}
+      </Animated.Text>
+    </View>
+  );
+};
 
 const Skeleton = ({ width, height, borderRadius, colors }: any) => {
   const opacity = useRef(new Animated.Value(0.3)).current;
@@ -37,19 +77,60 @@ function HomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
   const [categories, setCategories] = useState<string[]>(['All']);
-  const [newArticleAlert, setNewArticleAlert] = useState<Article | null>(null);
-  
   const { colors, isDark } = useTheme();
-  const bannerTranslateY = useRef(new Animated.Value(-100)).current;
+
+  // --- PUSH NOTIFICATIONS LOGIC ---
+  useEffect(() => {
+    async function requestPermissions() {
+      if (Device.isDevice) {
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#FF231F7C',
+          });
+        }
+
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus !== 'granted') {
+          Alert.alert("Permission Denied", "You won't receive breaking news alerts.");
+          return;
+        }
+
+        try {
+          const token = (await Notifications.getExpoPushTokenAsync({
+            projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
+          })).data;
+          
+          Alert.alert("Your Push Token", token);
+        } catch (e: any) {
+          // This will now show us the REAL error!
+          Alert.alert("Error", e.message || JSON.stringify(e)); 
+        }
+      }
+    }
+    requestPermissions();
+  }, []);
 
   const loadData = async () => {
     try {
       const data = await fetchArticles();
       
-      // Check for Breaking News!
       if (articles.length > 0 && data.length > 0 && articles[0].id !== data[0].id) {
-        setNewArticleAlert(data[0]);
-        showBanner();
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Breaking News from The BBN Post! 🚨",
+            body: data[0].title,
+            sound: true,
+          },
+          trigger: null,
+        });
       }
 
       setArticles(data);
@@ -61,14 +142,6 @@ function HomeScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
-  };
-
-  const showBanner = () => {
-    Animated.spring(bannerTranslateY, { toValue: 0, useNativeDriver: true }).start();
-    // Auto hide after 5 seconds
-    setTimeout(() => {
-      Animated.timing(bannerTranslateY, { toValue: -100, duration: 300, useNativeDriver: true }).start(() => setNewArticleAlert(null));
-    }, 5000);
   };
 
   useEffect(() => { loadData(); }, []);
@@ -120,26 +193,20 @@ function HomeScreen({ navigation }: any) {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       
-      {/* 🟢 CUSTOM BREAKING NEWS BANNER */}
-      {newArticleAlert && (
-        <Animated.View style={[styles.banner, { transform: [{ translateY: bannerTranslateY }], backgroundColor: colors.primary }]}>
-          <Ionicons name="notifications" size={20} color="#fff" />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={styles.bannerTitle}>Breaking News</Text>
-            <Text style={styles.bannerText} numberOfLines={1}>{newArticleAlert.title}</Text>
-          </View>
-        </Animated.View>
-      )}
-
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.masthead, { color: colors.text }]}>THE BBN POST</Text>
+        <Image source={require('./assets/icon.png')} style={styles.headerLogo} resizeMode="contain" />
+        <View style={styles.headerTextContainer}>
+          <Text style={[styles.masthead, { color: colors.text }]}>THE BBN POST</Text>
+          <Text style={styles.tagline}>
+            <Text style={{ color: '#FFD700' }}>HUNT FEARLESSLY. </Text>
+            <Text style={{ color: '#FF0000' }}>STRIKE MERCILESSLY.</Text>
+          </Text>
+        </View>
       </View>
 
       <View style={[styles.tickerContainer, { backgroundColor: colors.primary }]}>
         <Text style={styles.tickerLabel}>LATEST</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
-          <Text style={styles.tickerText}>• {featuredArticle?.title || 'Loading latest headlines...'}</Text>
-        </ScrollView>
+        <Ticker title={featuredArticle?.title || 'Loading latest headlines...'} />
       </View>
 
       <View>
@@ -234,33 +301,25 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 40 },
-  header: { paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1, alignItems: 'center' },
-  masthead: { fontSize: 28, fontWeight: '900', letterSpacing: -1 },
-  
-  banner: { position: 'absolute', top: 40, left: 16, right: 16, padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', zIndex: 999, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5 },
-  bannerTitle: { color: '#fff', fontWeight: 'bold', fontSize: 14, marginBottom: 2 },
-  bannerText: { color: '#fff', fontSize: 12 },
-
+  header: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1 },
+  headerLogo: { width: 40, height: 40, borderRadius: 8, marginRight: 12 },
+  headerTextContainer: { flexDirection: 'column', justifyContent: 'center' },
+  masthead: { fontSize: 24, fontWeight: '900', letterSpacing: -1, lineHeight: 26 },
+  tagline: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5, marginTop: 2 },
   tickerContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 },
   tickerLabel: { color: '#fff', fontWeight: '900', fontSize: 11, marginRight: 10, letterSpacing: 1 },
-  tickerText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-
   categoryScroll: { paddingHorizontal: 16, paddingVertical: 15 },
   categoryPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 10 },
   categoryText: { fontSize: 13, fontWeight: '700' },
-  
   featuredCard: { width: '100%', height: 280, marginBottom: 20, borderRadius: 20, overflow: 'hidden' },
   featuredImage: { width: '100%', height: '100%', resizeMode: 'cover' },
   featuredOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingTop: 80 },
   featuredCategory: { color: '#ff3b30', fontWeight: '900', fontSize: 12, marginBottom: 8, letterSpacing: 1 },
   featuredTitle: { color: '#fff', fontSize: 22, fontWeight: '800', lineHeight: 28 },
-
   sectionTitle: { fontSize: 20, fontWeight: '800', marginBottom: 12, letterSpacing: -0.5 },
-  
   carouselCard: { width: 160, marginRight: 16 },
   carouselImage: { width: '100%', height: 100, borderRadius: 12, marginBottom: 8 },
   carouselTitle: { fontSize: 14, fontWeight: '700', lineHeight: 18 },
-
   row: { justifyContent: 'space-between' },
   gridCard: { width: CARD_WIDTH, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
   gridImage: { width: '100%', height: 120, resizeMode: 'cover' },

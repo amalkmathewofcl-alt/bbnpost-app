@@ -1,4 +1,9 @@
-const FEED_URL = 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=20');
+// Your custom Cloudflare Worker Proxy
+const PROXY_URL = 'https://bbn-proxy.amalkmathewofcl.workers.dev/?url=';
+const TARGET_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=20';
+
+const FEED_URL = PROXY_URL + encodeURIComponent(TARGET_URL);
+
 export type Article = {
   id: string;
   title: string;
@@ -12,6 +17,8 @@ export type Article = {
 export async function fetchArticles(): Promise<Article[]> {
   try {
     const res = await fetch(FEED_URL);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    
     const data = await res.json();
     
     if (!data.feed || !data.feed.entry) return [];

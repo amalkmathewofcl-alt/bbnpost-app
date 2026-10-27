@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "bbnpost-app",
+    "name": "The BBN Post",
     "slug": "bbnpost-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -11,14 +11,32 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.amak_mathew.bbnpostapp",
+      "permissions": [
+        "NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "googleServicesFile": "./google-services.json"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "877e51fc-1f50-4aa5-a7cb-ee998188f1fd"
+      }
     }
   }
 }
