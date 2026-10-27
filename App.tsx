@@ -1,16 +1,17 @@
-// Add these to your React Navigation imports:
-import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   StyleSheet, Text, View, FlatList, Image, TouchableOpacity, 
   RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform 
 } from 'react-native';
+import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+
 import { fetchArticles, Article } from './services/feed';
 import ArticleScreen from './ArticleScreen';
 import SettingsScreen from './SettingsScreen';
@@ -27,12 +28,13 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const Stack = createNativeStackNavigator();
 type RootTabParamList = {
   Home: undefined;
   Saved: undefined;
   Settings: undefined;
 };
+
+const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -115,21 +117,25 @@ function HomeScreen({ navigation }: any) {
             projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
           })).data;
           
-              // Check if we have shown the token before
-    const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
+          // Check if we have shown the token before
+          const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
 
-    // Only show the alert if it hasn't been shown before
-    if (hasShownToken !== 'true') {
-      Alert.alert("Your Push Token", token);
-      // Save the flag so it never shows again
-      await AsyncStorage.setItem('has_shown_push_token', 'true');
-          } // <-- This closes the IF statement
-      
-    } catch (e: any) { 
-      // This will catch any errors
-      Alert.alert("Error", e.message || JSON.stringify(e));
+          // Only show the alert if it hasn't been shown before
+          if (hasShownToken !== 'true') {
+            Alert.alert("Your Push Token", token);
+            // Save the flag so it never shows again
+            await AsyncStorage.setItem('has_shown_push_token', 'true');
+          }
+        } catch (e: any) { 
+          // This will catch any errors
+          Alert.alert("Error", e.message || JSON.stringify(e));
+        }
+      }
     }
-  } // <-- This closes the requestPermissions function
+    
+    // CALL THE FUNCTION
+    requestPermissions();
+  }, []); // CLOSE THE useEffect
 
   const loadData = async () => {
     try {
@@ -274,7 +280,7 @@ function MainTabs() {
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.subText,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-                tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color, size }) => {
           let iconName: any;
 
           if (route.name === 'Home') {
