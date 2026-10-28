@@ -9,15 +9,15 @@ module.exports = {
     splash: {
       image: "./assets/icon.png",
       resizeMode: "contain",
-      backgroundColor: "#ffffff"
+      backgroundColor: "#051A44" // 👈 Changed to navy blue to match your logo!
     },
     ios: {
       supportsTablet: true
     },
-       android: {
+    android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/icon.png", // Uses your new navy logo
-        backgroundColor: "#051A44"           // The exact navy blue color
+        foregroundImage: "./assets/icon.png",
+        backgroundColor: "#051A44"
       },
       package: "com.amak_mathew.bbnpostapp",
       permissions: ["NOTIFICATIONS"],
