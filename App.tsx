@@ -25,6 +25,7 @@ import { BookmarkProvider } from './BookmarkContext';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
+    shouldShowAlert: true,   // 👈 ADD THIS LINE
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
