@@ -9,15 +9,19 @@ module.exports = {
     splash: {
       image: "./assets/icon.png",
       resizeMode: "contain",
-      backgroundColor: "#051A44" // 👈 Changed to navy blue to match your logo!
+      backgroundColor: "#ffffff"
     },
     ios: {
       supportsTablet: true
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/icon.png",
-        backgroundColor: "#051A44"
+        // 👇 This points to your red lion/tiger image
+        foregroundImage: "./assets/android-icon-foreground.png",
+        // 👇 This is the background color behind the lion. 
+        // I set it to white to match the edges of the lion image.
+        backgroundColor: "#ffffff",
+        monochromeImage: "./assets/android-icon-monochrome.png"
       },
       package: "com.amak_mathew.bbnpostapp",
       permissions: ["NOTIFICATIONS"],
