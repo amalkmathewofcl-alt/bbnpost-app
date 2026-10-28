@@ -14,11 +14,10 @@ module.exports = {
     ios: {
       supportsTablet: true
     },
-    android: {
+       android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/android-icon-foreground.png",
-        backgroundImage: "./assets/android-icon-background.png",
-        monochromeImage: "./assets/android-icon-monochrome.png"
+        foregroundImage: "./assets/icon.png", // Uses your new navy logo
+        backgroundColor: "#051A44"           // The exact navy blue color
       },
       package: "com.amak_mathew.bbnpostapp",
       permissions: ["NOTIFICATIONS"],
