@@ -12,6 +12,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 
+// 👇 Firebase Imports
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
+
 import { fetchArticles, Article } from './services/feed';
 import ArticleScreen from './ArticleScreen';
 import SettingsScreen from './SettingsScreen';
@@ -21,8 +25,8 @@ import { BookmarkProvider } from './BookmarkContext';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowBanner: true,  // Shows the popup banner at the top
-    shouldShowList: true,    // Shows it in the notification center
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
   }),
@@ -117,6 +121,17 @@ function HomeScreen({ navigation }: any) {
             projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
           })).data;
           
+          // 👇 Save the token to Firestore silently
+          try {
+            await setDoc(doc(db, 'push_tokens', token), {
+              token: token,
+              lastUpdated: new Date(),
+            }, { merge: true });
+            console.log("Token saved to Firestore successfully!");
+          } catch (dbError) {
+            console.error("Error saving token to Firestore:", dbError);
+          }
+
           // Check if we have shown the token before
           const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
 
