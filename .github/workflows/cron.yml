@@ -36,4 +36,10 @@ jobs:
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
           git add last_post.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last post ID" && git push)
+          # Only commit if last_post.json actually changed
+          if ! git diff --staged --quiet; then
+            git commit -m "Update last post ID"
+            git push
+          else
+            echo "No new posts, skipping commit."
+          fi
