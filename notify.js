@@ -1,16 +1,23 @@
 const fs = require('fs');
 const path = require('path');
-const admin = require('firebase-admin');
+const { initializeApp, cert } = require('firebase-admin/app'); // 👈 New modular import
+const { getFirestore } = require('firebase-admin/firestore');  // 👈 New modular import
 
 const RSS_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=1';
 const STATE_FILE = path.join(__dirname, 'last_post.json');
 
 // 1. Initialize Firebase Admin using the GitHub Secret
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-  });
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    initializeApp({
+      credential: cert(serviceAccount) // 👈 Changed to use the modular 'cert'
+    });
+    console.log("Firebase initialized successfully.");
+  } catch (error) {
+    console.error("Failed to initialize Firebase. Check your Secret JSON format:", error);
+    process.exit(1);
+  }
 } else {
   console.log("No Firebase credentials found. Skipping...");
   process.exit(1);
@@ -41,9 +48,11 @@ async function checkFeed() {
     console.log(`New post found: ${title}`);
 
     // 2. Fetch all tokens from Firestore
-    const tokensSnapshot = await admin.firestore().collection('push_tokens').get();
+    const db = getFirestore(); // 👈 Get the database instance this way now
+    const tokensSnapshot = await db.collection('push_tokens').get();
+    
     if (tokensSnapshot.empty) {
-      console.log('No push tokens in database.');
+      console.log('No push tokens in database. Exiting.');
       return;
     }
 
@@ -78,7 +87,7 @@ async function checkFeed() {
     console.log('Notifications sent and state saved.');
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error checking feed or sending notifications:', error);
   }
 }
 
