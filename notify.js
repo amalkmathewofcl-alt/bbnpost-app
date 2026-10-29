@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { initializeApp, cert } = require('firebase-admin/app'); // 👈 New modular import
-const { getFirestore } = require('firebase-admin/firestore');  // 👈 New modular import
+const { initializeApp, cert } = require('firebase-admin/app'); 
+const { getFirestore } = require('firebase-admin/firestore');  
 
 const RSS_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=1';
 const STATE_FILE = path.join(__dirname, 'last_post.json');
@@ -11,7 +11,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
     initializeApp({
-      credential: cert(serviceAccount) // 👈 Changed to use the modular 'cert'
+      credential: cert(serviceAccount) 
     });
     console.log("Firebase initialized successfully.");
   } catch (error) {
@@ -48,7 +48,7 @@ async function checkFeed() {
     console.log(`New post found: ${title}`);
 
     // 2. Fetch all tokens from Firestore
-    const db = getFirestore(); // 👈 Get the database instance this way now
+    const db = getFirestore(); 
     const tokensSnapshot = await db.collection('push_tokens').get();
     
     if (tokensSnapshot.empty) {
@@ -59,7 +59,7 @@ async function checkFeed() {
     const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
     console.log(`Sending notification to ${tokens.length} devices...`);
 
-    // 3. Send notifications in chunks of 100 (Expo's limit per request)
+    // 3. Send notifications in chunks of 100
     const chunkSize = 100;
     for (let i = 0; i < tokens.length; i += chunkSize) {
       const chunk = tokens.slice(i, i + chunkSize);
@@ -82,7 +82,7 @@ async function checkFeed() {
       });
     }
 
-    // 4. Save the new ID so we don't send it again next hour
+    // 4. Save the new ID
     fs.writeFileSync(STATE_FILE, JSON.stringify({ lastId: latestId }));
     console.log('Notifications sent and state saved.');
 
