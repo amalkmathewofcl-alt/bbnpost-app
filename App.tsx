@@ -25,7 +25,7 @@ import { BookmarkProvider } from './BookmarkContext';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,   // 👈 ADD THIS LINE
+    shouldShowAlert: true,
     shouldShowBanner: true,
     shouldShowList: true,
     shouldPlaySound: true,
@@ -133,12 +133,15 @@ function HomeScreen({ navigation }: any) {
             console.error("Error saving token to Firestore:", dbError);
           }
 
-          // Check if we have shown the token before
+          // Check if we have shown the welcome message before
           const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
 
           // Only show the alert if it hasn't been shown before
           if (hasShownToken !== 'true') {
-            Alert.alert("Your Push Token", token);
+            Alert.alert(
+              "Notifications Enabled! 🔔", 
+              "You will now receive breaking news alerts from The BBN Post."
+            );
             // Save the flag so it never shows again
             await AsyncStorage.setItem('has_shown_push_token', 'true');
           }
