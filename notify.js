@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 // YOUR PERSONAL PUSH TOKEN
-const EXPO_PUSH_TOKEN = 'ExponentPushToken[znjyEPHxFCDUntxyXGRas6]';
+const EXPO_PUSH_TOKEN = 'ExponentPushToken[-bUW-QFSGg2gVQv6aX03tO]';
 const RSS_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=1';
 const STATE_FILE = path.join(__dirname, 'last_post.json');
 
