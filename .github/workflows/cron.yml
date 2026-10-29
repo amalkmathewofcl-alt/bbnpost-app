@@ -1,9 +1,7 @@
 name: Hourly News Check
 
 on:
-  schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Kept so you can still run it manually from GitHub
 
 # This block gives the action permission to push last_post.json back to the repo
 permissions:
