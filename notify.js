@@ -58,9 +58,7 @@ async function checkFeed() {
 
     const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
     
-    // 👇 NEW LOG ADDED HERE
     console.log(`📊 TOTAL INSTALLED DEVICES: ${tokens.length}`);
-    
     console.log(`Sending notification to ${tokens.length} devices...`);
 
     // 3. Send notifications in chunks of 100
@@ -75,7 +73,8 @@ async function checkFeed() {
         sound: "default"
       }));
 
-      await fetch('https://exp.host/--/api/v2/push/send', {
+      // Send the notification and capture the response
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
@@ -84,11 +83,28 @@ async function checkFeed() {
         },
         body: JSON.stringify(messages)
       });
+
+      // 👇 NEW: Check for uninstalled devices and clean the database
+      const responseData = await response.json();
+      
+      if (responseData.data) {
+        for (let j = 0; j < responseData.data.length; j++) {
+          const ticket = responseData.data[j];
+          
+          // If Expo says the device is not registered, delete it from Firebase
+          if (ticket.status === 'error' && ticket.details && ticket.details.error === 'DeviceNotRegistered') {
+            const deadToken = chunk[j];
+            console.log(`🗑️ Deleting uninstalled device token: ${deadToken}`);
+            await db.collection('push_tokens').doc(deadToken).delete();
+          }
+        }
+      }
+      // 👆 END OF NEW BLOCK
     }
 
     // 4. Save the new ID
     fs.writeFileSync(STATE_FILE, JSON.stringify({ lastId: latestId }));
-    console.log('Notifications sent and state saved.');
+    console.log('Notifications sent, uninstalled devices removed, and state saved.');
 
   } catch (error) {
     console.error('Error checking feed or sending notifications:', error);
