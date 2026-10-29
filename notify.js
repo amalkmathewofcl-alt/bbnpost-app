@@ -57,6 +57,10 @@ async function checkFeed() {
     }
 
     const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
+    
+    // 👇 NEW LOG ADDED HERE
+    console.log(`📊 TOTAL INSTALLED DEVICES: ${tokens.length}`);
+    
     console.log(`Sending notification to ${tokens.length} devices...`);
 
     // 3. Send notifications in chunks of 100
