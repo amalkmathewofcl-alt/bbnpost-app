@@ -16,6 +16,7 @@
     "expo-notifications": "~58.1.6",
     "expo-status-bar": "~58.0.4",
     "firebase": "^13.1.0",
+    "firebase-admin": "^14.5.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.0",
@@ -26,13 +27,26 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web"
   },
   "private": true,
   "devDependencies": {
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
+  },
+  "expo": {
+    "doctor": {
+      "appConfigFieldsNotSyncedCheck": {
+        "enabled": false
+      },
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-render-html"
+        ],
+        "listUnknownPackages": false
+      }
+    }
   }
 }
