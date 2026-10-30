@@ -6,7 +6,7 @@ const { getFirestore } = require('firebase-admin/firestore');
 const RSS_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=1';
 const STATE_FILE = path.join(__dirname, 'last_post.json');
 
-// 1. Initialize Firebase Admin using the GitHub Secret
+// 1. Initialize Firebase Admin
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -23,8 +23,80 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   process.exit(1);
 }
 
+const db = getFirestore();
+
+// Helper function to send push notifications
+async function sendPushNotifications(tokens, title, body) {
+  const chunkSize = 100;
+  for (let i = 0; i < tokens.length; i += chunkSize) {
+    const chunk = tokens.slice(i, i + chunkSize);
+    
+    const messages = chunk.map(token => ({
+      to: token,
+      title: title,
+      body: body,
+      sound: "default"
+    }));
+
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages)
+    });
+
+    // Check for uninstalled devices and clean them
+    const responseData = await response.json();
+    if (responseData.data) {
+      for (let j = 0; j < responseData.data.length; j++) {
+        const ticket = responseData.data[j];
+        if (ticket.status === 'error' && ticket.details && ticket.details.error === 'DeviceNotRegistered') {
+          const deadToken = chunk[j];
+          console.log(`🗑️ Deleting uninstalled device token: ${deadToken}`);
+          await db.collection('push_tokens').doc(deadToken).delete();
+        }
+      }
+    }
+  }
+}
+
 async function checkFeed() {
   try {
+    // ==========================================
+    // PART 1: CHECK SCHEDULED ALERTS
+    // ==========================================
+    const now = new Date();
+    const scheduledSnapshot = await db.collection('scheduled_alerts')
+      .where('status', '==', 'pending')
+      .get();
+
+    if (!scheduledSnapshot.empty) {
+      console.log(`Found ${scheduledSnapshot.size} pending scheduled alerts.`);
+      const tokensSnapshot = await db.collection('push_tokens').get();
+      const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
+
+      for (const alertDoc of scheduledSnapshot.docs) {
+        const alertData = alertDoc.data();
+        
+        // Convert Firestore timestamp to JS Date
+        const sendAtDate = alertData.sendAt.toDate(); 
+        
+        if (sendAtDate <= now) {
+          console.log(`⏰ Sending scheduled alert: ${alertData.title}`);
+          await sendPushNotifications(tokens, alertData.title, alertData.message);
+          
+          // Mark as sent so it doesn't send again
+          await db.collection('scheduled_alerts').doc(alertDoc.id).update({ status: 'sent' });
+        }
+      }
+    }
+
+    // ==========================================
+    // PART 2: CHECK BLOGGER RSS FEED
+    // ==========================================
     const res = await fetch(RSS_URL);
     const data = await res.json();
 
@@ -40,74 +112,24 @@ async function checkFeed() {
       lastSeenId = state.lastId;
     }
 
-    if (latestId === lastSeenId) {
-      console.log('No new posts. Exiting.');
-      return;
-    }
+    if (latestId !== lastSeenId) {
+      console.log(`New blog post found: ${title}`);
+      const tokensSnapshot = await db.collection('push_tokens').get();
+      const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
 
-    console.log(`New post found: ${title}`);
-
-    // 2. Fetch all tokens from Firestore
-    const db = getFirestore(); 
-    const tokensSnapshot = await db.collection('push_tokens').get();
-    
-    if (tokensSnapshot.empty) {
-      console.log('No push tokens in database. Exiting.');
-      return;
-    }
-
-    const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
-    
-    console.log(`📊 TOTAL INSTALLED DEVICES: ${tokens.length}`);
-    console.log(`Sending notification to ${tokens.length} devices...`);
-
-    // 3. Send notifications in chunks of 100
-    const chunkSize = 100;
-    for (let i = 0; i < tokens.length; i += chunkSize) {
-      const chunk = tokens.slice(i, i + chunkSize);
-      
-      const messages = chunk.map(token => ({
-        to: token,
-        title: "Breaking News from The BBN Post! 🚨",
-        body: title,
-        sound: "default"
-      }));
-
-      // Send the notification and capture the response
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Accept-encoding': 'gzip, deflate',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messages)
-      });
-
-      // 👇 NEW: Check for uninstalled devices and clean the database
-      const responseData = await response.json();
-      
-      if (responseData.data) {
-        for (let j = 0; j < responseData.data.length; j++) {
-          const ticket = responseData.data[j];
-          
-          // If Expo says the device is not registered, delete it from Firebase
-          if (ticket.status === 'error' && ticket.details && ticket.details.error === 'DeviceNotRegistered') {
-            const deadToken = chunk[j];
-            console.log(`🗑️ Deleting uninstalled device token: ${deadToken}`);
-            await db.collection('push_tokens').doc(deadToken).delete();
-          }
-        }
+      if (tokens.length > 0) {
+        console.log(`📊 TOTAL INSTALLED DEVICES: ${tokens.length}`);
+        await sendPushNotifications(tokens, "Breaking News from The BBN Post! 🚨", title);
       }
-      // 👆 END OF NEW BLOCK
-    }
 
-    // 4. Save the new ID
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastId: latestId }));
-    console.log('Notifications sent, uninstalled devices removed, and state saved.');
+      fs.writeFileSync(STATE_FILE, JSON.stringify({ lastId: latestId }));
+      console.log('Blogger notifications sent and state saved.');
+    } else {
+      console.log('No new Blogger posts. Exiting RSS check.');
+    }
 
   } catch (error) {
-    console.error('Error checking feed or sending notifications:', error);
+    console.error('Error checking feed or scheduled alerts:', error);
   }
 }
 

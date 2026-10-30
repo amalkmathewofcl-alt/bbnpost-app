@@ -1,373 +1,380 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  StyleSheet, Text, View, FlatList, Image, TouchableOpacity, 
-  RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform 
+  StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator, SafeAreaView, StatusBar, ScrollView, KeyboardAvoidingView, Platform, FlatList, Switch
 } from 'react-native';
-import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
+import { collection, getDocs, doc, deleteDoc, addDoc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { auth, db } from './firebase';
 
-// 👇 Firebase Imports
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
-
-import { fetchArticles, Article } from './services/feed';
-import ArticleScreen from './ArticleScreen';
-import SettingsScreen from './SettingsScreen';
-import SavedScreen from './SavedScreen';
-import { ThemeProvider, useTheme } from './ThemeContext';
-import { BookmarkProvider } from './BookmarkContext';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
-
-type RootTabParamList = {
-  Home: undefined;
-  Saved: undefined;
-  Settings: undefined;
-};
+// 👇 YOUR GROQ API KEY
+const GROQ_API_KEY = "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"; 
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator<RootTabParamList>();
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
 
-const Ticker = ({ title }: { title: string }) => {
-  const animatedValue = useRef(new Animated.Value(width)).current;
-  const [textWidth, setTextWidth] = useState(0);
+// --- LOGIN SCREEN ---
+function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (textWidth > 0) {
-      animatedValue.setValue(width);
-      Animated.loop(
-        Animated.timing(animatedValue, {
-          toValue: -textWidth,
-          duration: 12000,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        })
-      ).start();
-    }
-  }, [textWidth, title]);
-
-  return (
-    <View style={{ flex: 1, overflow: 'hidden', height: 20, justifyContent: 'center' }}>
-      <Animated.Text
-        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
-        style={{ color: '#fff', fontSize: 13, fontWeight: '600', transform: [{ translateX: animatedValue }] }}
-      >
-        • {title}
-      </Animated.Text>
-    </View>
-  );
-};
-
-const Skeleton = ({ width, height, borderRadius, colors }: any) => {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-  useEffect(() => {
-    Animated.loop(Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 0.3, duration: 800, useNativeDriver: true }),
-    ])).start();
-  }, []);
-  return <Animated.View style={{ width, height, borderRadius, backgroundColor: colors.border, opacity, marginBottom: 12 }} />;
-};
-
-function HomeScreen({ navigation }: any) {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [activeCategory, setActiveCategory] = useState('All');
-  const [categories, setCategories] = useState<string[]>(['All']);
-  const { colors, isDark } = useTheme();
-
-  // --- PUSH NOTIFICATIONS LOGIC ---
-  useEffect(() => {
-    async function requestPermissions() {
-      if (Device.isDevice) {
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'default',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-          });
-        }
-
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus !== 'granted') {
-          Alert.alert("Permission Denied", "You won't receive breaking news alerts.");
-          return;
-        }
-
-        try {
-          const token = (await Notifications.getExpoPushTokenAsync({
-            projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
-          })).data;
-          
-          // 👇 Save the token to Firestore silently
-          try {
-            await setDoc(doc(db, 'push_tokens', token), {
-              token: token,
-              lastUpdated: new Date(),
-            }, { merge: true });
-            console.log("Token saved to Firestore successfully!");
-          } catch (dbError) {
-            console.error("Error saving token to Firestore:", dbError);
-          }
-
-          // Check if we have shown the welcome message before
-          const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
-
-          // Only show the alert if it hasn't been shown before
-          if (hasShownToken !== 'true') {
-            Alert.alert(
-              "Notifications Enabled! 🔔", 
-              "You will now receive breaking news alerts from The BBN Post."
-            );
-            // Save the flag so it never shows again
-            await AsyncStorage.setItem('has_shown_push_token', 'true');
-          }
-        } catch (e: any) { 
-          // This will catch any errors
-          Alert.alert("Error", e.message || JSON.stringify(e));
-        }
-      }
-    }
-    
-    // CALL THE FUNCTION
-    requestPermissions();
-  }, []); // CLOSE THE useEffect
-
-  const loadData = async () => {
+  const handleLogin = async () => {
+    if (!email || !password) return Alert.alert("Error", "Please enter email and password.");
+    setLoading(true);
     try {
-      const data = await fetchArticles();
-      
-      if (articles.length > 0 && data.length > 0 && articles[0].id !== data[0].id) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Breaking News from The BBN Post! 🚨",
-            body: data[0].title,
-            sound: true,
-          },
-          trigger: null,
-        });
-      }
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error: any) {
+      Alert.alert("Login Failed", error.message);
+    } finally { setLoading(false); }
+  };
 
-      setArticles(data);
-      const uniqueCats = new Set<string>();
-      data.forEach(article => article.categories.forEach(cat => uniqueCats.add(cat)));
-      setCategories(['All', ...Array.from(uniqueCats)]);
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <View style={styles.loginBox}>
+        <Text style={styles.title}>BBN Admin Portal</Text>
+        <Text style={styles.subtitle}>Authorized Personnel Only</Text>
+        <TextInput style={styles.input} placeholder="Email Address" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <TextInput style={styles.input} placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry />
+        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+          {loading ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Log In</Text>}
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+// --- DASHBOARD SCREEN ---
+function DashboardScreen({ navigation }: any) {
+  const handleLogout = async () => { await signOut(auth); };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Admin Dashboard</Text>
+        <Text style={styles.headerSubtitle}>{auth.currentUser?.email}</Text>
+      </View>
+      <View style={styles.dashboard}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SendAlert')}>
+          <Text style={styles.actionIcon}>🚨</Text>
+          <Text style={styles.actionText}>Send Alert</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('AlertHistory')}>
+          <Text style={styles.actionIcon}>📜</Text>
+          <Text style={styles.actionText}>Alert History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('Analytics')}>
+          <Text style={styles.actionIcon}>📊</Text>
+          <Text style={styles.actionText}>Device Analytics</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}><Text style={styles.logoutText}>Log Out</Text></TouchableOpacity>
+    </SafeAreaView>
+  );
+}
+
+// --- SEND ALERT SCREEN (AI + Schedule + Test Mode) ---
+function SendAlertScreen({ navigation }: any) {
+  const [alertTitle, setAlertTitle] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [polishing, setPolishing] = useState(false);
+  
+  const [testMode, setTestMode] = useState(false); 
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [hoursLater, setHoursLater] = useState('1'); 
+
+  // 🪄 AI POLISHER FUNCTION (GROQ)
+  const polishWithAI = async () => {
+    if (!alertMessage) return Alert.alert("Empty", "Please type a rough message first.");
+    setPolishing(true);
+    try {
+      const response = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROQ_API_KEY}` 
+        },
+        body: JSON.stringify({
+          model: "llama3-8b-8192",
+          messages: [
+            { role: "system", content: "You are a professional news editor for The BBN Post. Rewrite the user's rough note into a highly professional, urgent, and concise breaking news alert (max 2 sentences). Do not include quotes or extra text." },
+            { role: "user", content: alertMessage }
+          ]
+        })
+      });
+      const data = await response.json();
+      
+      if (data.choices && data.choices[0].message.content) {
+        setAlertMessage(data.choices[0].message.content.trim());
+      } else {
+        Alert.alert("AI Error", "Could not polish text. Check your Groq API key.");
+        console.log("Groq Error:", data);
+      }
     } catch (error) {
-      console.error(error);
+      Alert.alert("Network Error", "Could not reach AI servers.");
     } finally {
-      setLoading(false);
+      setPolishing(false);
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  const sendNotification = async () => {
+    if (!alertTitle || !alertMessage) return Alert.alert("Error", "Please enter both a title and a message.");
+    setSending(true);
+    try {
+      if (scheduleLater) {
+        const sendAt = new Date(Date.now() + parseInt(hoursLater) * 60 * 60 * 1000); 
+        await addDoc(collection(db, 'scheduled_alerts'), {
+          title: alertTitle,
+          message: alertMessage,
+          sendAt: sendAt,
+          status: 'pending'
+        });
+        Alert.alert("Scheduled! ⏰", `Alert will be sent in ${hoursLater} hour(s).`);
+        navigation.goBack();
+        return;
+      }
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  }, [articles]);
+      let targetTokens: string[] = [];
+      const querySnapshot = await getDocs(collection(db, 'push_tokens'));
+      
+      if (testMode) {
+        targetTokens = [querySnapshot.docs[0].data().token]; 
+      } else {
+        targetTokens = querySnapshot.docs.map(doc => doc.data().token);
+      }
 
-  const filteredArticles = activeCategory === 'All' ? articles : articles.filter(a => a.categories.includes(activeCategory));
-  const featuredArticle = filteredArticles.length > 0 ? filteredArticles[0] : null;
-  const carouselArticles = filteredArticles.slice(1, 6); 
-  const gridArticles = filteredArticles.slice(6);
+      if (targetTokens.length === 0) { Alert.alert("No Devices", "No devices registered."); setSending(false); return; }
 
-  const renderHeader = () => {
-    if (!featuredArticle) return null;
-    return (
-      <View>
-        <TouchableOpacity style={styles.featuredCard} activeOpacity={0.9} onPress={() => navigation.navigate('Article', { article: featuredArticle })}>
-          <Image source={{ uri: featuredArticle.imageUrl || 'https://via.placeholder.com/600x400' }} style={styles.featuredImage} />
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.featuredOverlay}>
-            <Text style={styles.featuredCategory}>{featuredArticle.categories[0] || 'BREAKING'}</Text>
-            <Text style={styles.featuredTitle} numberOfLines={3}>{featuredArticle.title}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+      const messages = targetTokens.map(token => ({ 
+        to: token, 
+        title: testMode ? `[TEST] ${alertTitle}` : alertTitle, 
+        body: alertMessage, 
+        sound: 'default' 
+      }));
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Stories</Text>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={carouselArticles}
-          keyExtractor={item => item.id}
-          contentContainerStyle={{ paddingRight: 16, paddingBottom: 20 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.carouselCard} onPress={() => navigation.navigate('Article', { article: item })}>
-              <Image source={{ uri: item.imageUrl || 'https://via.placeholder.com/200' }} style={styles.carouselImage} />
-              <Text style={[styles.carouselTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
-            </TouchableOpacity>
-          )}
-        />
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(messages),
+      });
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Latest News</Text>
-      </View>
-    );
+      if (response.ok) {
+        if (!testMode) {
+          await addDoc(collection(db, 'alert_history'), { title: alertTitle, message: alertMessage, sentAt: serverTimestamp(), deviceCount: targetTokens.length });
+        }
+        Alert.alert("Success 🚀", testMode ? "Test alert sent!" : `Alert sent to ${targetTokens.length} devices!`);
+        navigation.goBack();
+      } else { Alert.alert("Error", "Failed to send."); }
+    } catch (error: any) { Alert.alert("Error", error.message); } 
+    finally { setSending(false); }
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Image source={require('./assets/icon.png')} style={styles.headerLogo} resizeMode="contain" />
-        <View style={styles.headerTextContainer}>
-          <Text style={[styles.masthead, { color: colors.text }]}>THE BBN POST</Text>
-          <Text style={styles.tagline}>
-            <Text style={{ color: '#FFD700' }}>HUNT FEARLESSLY. </Text>
-            <Text style={{ color: '#FF0000' }}>STRIKE MERCILESSLY.</Text>
-          </Text>
-        </View>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}>
+          <Text style={{ color: '#94A3B8', fontSize: 16 }}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{scheduleLater ? 'Schedule Alert' : 'Send Alert'}</Text>
       </View>
 
-      <View style={[styles.tickerContainer, { backgroundColor: colors.primary }]}>
-        <Text style={styles.tickerLabel}>LATEST</Text>
-        <Ticker title={featuredArticle?.title || 'Loading latest headlines...'} />
-      </View>
-
-      <View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryScroll}>
-          {categories.map(cat => (
-            <TouchableOpacity key={cat} onPress={() => setActiveCategory(cat)} style={[styles.categoryPill, { backgroundColor: colors.card }, activeCategory === cat && { backgroundColor: colors.primary }]}>
-              <Text style={[styles.categoryText, activeCategory === cat ? { color: '#fff' } : { color: colors.text }]}>{cat}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-      
-      {loading ? (
-        <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-          <Skeleton width="100%" height={280} borderRadius={20} colors={colors} />
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>
-            <Skeleton width={CARD_WIDTH} height={200} borderRadius={16} colors={colors} />
-            <Skeleton width={CARD_WIDTH} height={200} borderRadius={16} colors={colors} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+        <ScrollView style={{ padding: 20 }}>
+          
+          <View style={styles.toggleContainer}>
+            <Text style={styles.toggleText}>Test Mode (Send to me only)</Text>
+            <Switch value={testMode} onValueChange={setTestMode} trackColor={{ false: "#CBD5E1", true: "#2563EB" }} />
           </View>
-        </View>
-      ) : (
-        <FlatList
-          data={gridArticles}
-          keyExtractor={item => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.row}
-          ListHeaderComponent={renderHeader}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} />}
-          contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={[styles.gridCard, { backgroundColor: colors.card }]} activeOpacity={0.8} onPress={() => navigation.navigate('Article', { article: item })}>
-              {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.gridImage} /> : <View style={[styles.gridImage, { backgroundColor: colors.border }]} />}
-              <View style={styles.gridTextContainer}>
-                <Text style={[styles.gridCategory, { color: colors.primary }]} numberOfLines={1}>{item.categories[0] || 'NEWS'}</Text>
-                <Text style={[styles.gridTitle, { color: colors.text }]} numberOfLines={3}>{item.title}</Text>
-              </View>
-            </TouchableOpacity>
+
+          <View style={styles.toggleContainer}>
+            <Text style={styles.toggleText}>Schedule for Later ⏰</Text>
+            <Switch value={scheduleLater} onValueChange={setScheduleLater} trackColor={{ false: "#CBD5E1", true: "#F59E0B" }} />
+          </View>
+
+          {scheduleLater && (
+            <View style={{ marginBottom: 20 }}>
+              <Text style={styles.label}>Send after how many hours?</Text>
+              <TextInput style={styles.input} keyboardType="numeric" value={hoursLater} onChangeText={setHoursLater} placeholder="e.g., 1" />
+            </View>
           )}
-        />
+
+          <Text style={styles.label}>Alert Title</Text>
+          <TextInput style={styles.input} placeholder="e.g., 🚨 Breaking News" value={alertTitle} onChangeText={setAlertTitle} />
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text style={styles.label}>Message</Text>
+            <TouchableOpacity onPress={polishWithAI} disabled={polishing} style={{ backgroundColor: '#E0E7FF', padding: 6, borderRadius: 6, flexDirection: 'row', alignItems: 'center' }}>
+              {polishing ? <ActivityIndicator size="small" color="#4338CA" /> : <Text style={{ color: '#4338CA', fontWeight: 'bold' }}>✨ Polish with AI</Text>}
+            </TouchableOpacity>
+          </View>
+          <TextInput style={[styles.input, { height: 120, textAlignVertical: 'top' }]} placeholder="Type a rough note, then tap Polish with AI..." value={alertMessage} onChangeText={setAlertMessage} multiline />
+
+          <TouchableOpacity style={[styles.button, { marginTop: 10, backgroundColor: scheduleLater ? '#F59E0B' : (testMode ? '#2563EB' : '#DC2626') }]} onPress={sendNotification} disabled={sending || polishing}>
+            {sending ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>{scheduleLater ? "Schedule Alert" : (testMode ? "Send Test Alert" : "Send Alert Now")}</Text>}
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// --- ALERT HISTORY SCREEN ---
+function AlertHistoryScreen({ navigation }: any) {
+  const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const q = query(collection(db, 'alert_history'), orderBy('sentAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        setHistory(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      } catch (error) { Alert.alert("Error", "Could not load history."); } 
+      finally { setLoading(false); }
+    };
+    fetchHistory();
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}>
+          <Text style={{ color: '#94A3B8', fontSize: 16 }}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Alert History</Text>
+      </View>
+      {loading ? <ActivityIndicator size="large" color="#051A44" style={{ marginTop: 50 }} /> : history.length === 0 ? <Text style={{ textAlign: 'center', marginTop: 50, color: '#64748B' }}>No alerts sent yet.</Text> : (
+        <FlatList data={history} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} renderItem={({ item }) => (
+          <View style={styles.historyCard}>
+            <Text style={styles.historyTitle}>{item.title}</Text>
+            <Text style={styles.historyMsg}>{item.message}</Text>
+            <View style={styles.historyFooter}>
+              <Text style={styles.historyDate}>{item.sentAt ? new Date(item.sentAt.seconds * 1000).toLocaleString() : 'Sending...'}</Text>
+              <Text style={styles.historyCount}>📱 {item.deviceCount} devices</Text>
+            </View>
+          </View>
+        )} />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
-function MainTabs() {
-  const { colors } = useTheme();
-  return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: false,
-        tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border, height: 65, paddingBottom: 10, paddingTop: 5 },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.subText,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName: any;
+// --- ANALYTICS SCREEN ---
+function AnalyticsScreen({ navigation }: any) {
+  const [deviceCount, setDeviceCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cleaning, setCleaning] = useState(false);
 
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Saved') {
-            iconName = focused ? 'bookmark' : 'bookmark-outline';
-          } else if (route.name === 'Settings') {
-            iconName = focused ? 'settings' : 'settings-outline';
+  const fetchAnalytics = async () => {
+    setLoading(true);
+    try {
+      const querySnapshot = await getDocs(collection(db, 'push_tokens'));
+      setDeviceCount(querySnapshot.size);
+    } catch (error) { Alert.alert("Error", "Could not fetch data."); } finally { setLoading(false); }
+  };
+
+  const cleanGhostDevices = async () => {
+    setCleaning(true);
+    try {
+      const querySnapshot = await getDocs(collection(db, 'push_tokens'));
+      const tokens = querySnapshot.docs.map(doc => doc.data().token);
+      if (tokens.length === 0) { Alert.alert("Empty", "No tokens to clean."); setCleaning(false); return; }
+      let deletedCount = 0;
+      const chunkSize = 100;
+      for (let i = 0; i < tokens.length; i += chunkSize) {
+        const chunk = tokens.slice(i, i + chunkSize);
+        const messages = chunk.map(token => ({ to: token, data: { cleanup: true } }));
+        const response = await fetch('https://exp.host/--/api/v2/push/send', { method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(messages) });
+        const responseData = await response.json();
+        if (responseData.data) {
+          for (let j = 0; j < responseData.data.length; j++) {
+            if (responseData.data[j].status === 'error' && responseData.data[j].details?.error === 'DeviceNotRegistered') {
+              await deleteDoc(doc(db, 'push_tokens', chunk[j])); deletedCount++;
+            }
           }
+        }
+      }
+      Alert.alert("Cleanup Complete 🧹", `Removed ${deletedCount} ghost devices.`); fetchAnalytics();
+    } catch (error: any) { Alert.alert("Error", error.message); } finally { setCleaning(false); }
+  };
 
-          return <Ionicons name={iconName} size={24} color={color} />;
-        },
-      })}
-    >
-      <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Saved" component={SavedScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
-    </Tab.Navigator>
+  useEffect(() => { fetchAnalytics(); }, []);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}><Text style={{ color: '#94A3B8', fontSize: 16 }}>← Back</Text></TouchableOpacity>
+        <Text style={styles.headerTitle}>Device Analytics</Text>
+      </View>
+      <View style={{ padding: 20, alignItems: 'center', marginTop: 20 }}>
+        <View style={styles.statCard}>
+          <Text style={styles.statLabel}>Total Active Devices</Text>
+          {loading ? <ActivityIndicator size="large" color="#051A44" style={{ marginTop: 20 }} /> : <Text style={styles.statValue}>{deviceCount}</Text>}
+        </View>
+        <TouchableOpacity style={[styles.button, { width: '100%', marginTop: 30 }]} onPress={fetchAnalytics} disabled={loading || cleaning}><Text style={styles.buttonText}>Refresh Data</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.button, { width: '100%', marginTop: 15, backgroundColor: '#475569' }]} onPress={cleanGhostDevices} disabled={loading || cleaning}>{cleaning ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>🧹 Clean Ghost Devices</Text>}</TouchableOpacity>
+      </View>
+    </SafeAreaView>
   );
 }
 
-function MainApp() {
-  const { isDark } = useTheme();
+// --- MAIN APP ROUTER ---
+export default function App() {
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => { setUser(currentUser); setLoading(false); });
+    return unsubscribe;
+  }, []);
+
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" color="#051A44" /></View>;
+
   return (
-    <NavigationContainer theme={isDark ? DarkTheme : DefaultTheme}>
+    <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Tabs" component={MainTabs} />
-        <Stack.Screen name="Article" component={ArticleScreen} />
+        {user ? (
+          <>
+            <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="SendAlert" component={SendAlertScreen} />
+            <Stack.Screen name="AlertHistory" component={AlertHistoryScreen} />
+            <Stack.Screen name="Analytics" component={AnalyticsScreen} />
+          </>
+        ) : ( <Stack.Screen name="Login" component={LoginScreen} /> )}
       </Stack.Navigator>
     </NavigationContainer>
   );
 }
 
-export default function App() {
-  return (
-    <ThemeProvider>
-      <BookmarkProvider>
-        <MainApp />
-      </BookmarkProvider>
-    </ThemeProvider>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingTop: 40 },
-  header: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1 },
-  headerLogo: { width: 40, height: 40, borderRadius: 8, marginRight: 12 },
-  headerTextContainer: { flexDirection: 'column', justifyContent: 'center' },
-  masthead: { fontSize: 24, fontWeight: '900', letterSpacing: -1, lineHeight: 26 },
-  tagline: { fontSize: 9, fontWeight: '900', letterSpacing: 0.5, marginTop: 2 },
-  tickerContainer: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 12 },
-  tickerLabel: { color: '#fff', fontWeight: '900', fontSize: 11, marginRight: 10, letterSpacing: 1 },
-  categoryScroll: { paddingHorizontal: 16, paddingVertical: 15 },
-  categoryPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginRight: 10 },
-  categoryText: { fontSize: 13, fontWeight: '700' },
-  featuredCard: { width: '100%', height: 280, marginBottom: 20, borderRadius: 20, overflow: 'hidden' },
-  featuredImage: { width: '100%', height: '100%', resizeMode: 'cover' },
-  featuredOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingTop: 80 },
-  featuredCategory: { color: '#ff3b30', fontWeight: '900', fontSize: 12, marginBottom: 8, letterSpacing: 1 },
-  featuredTitle: { color: '#fff', fontSize: 22, fontWeight: '800', lineHeight: 28 },
-  sectionTitle: { fontSize: 20, fontWeight: '800', marginBottom: 12, letterSpacing: -0.5 },
-  carouselCard: { width: 160, marginRight: 16 },
-  carouselImage: { width: '100%', height: 100, borderRadius: 12, marginBottom: 8 },
-  carouselTitle: { fontSize: 14, fontWeight: '700', lineHeight: 18 },
-  row: { justifyContent: 'space-between' },
-  gridCard: { width: CARD_WIDTH, marginBottom: 16, borderRadius: 16, overflow: 'hidden', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8 },
-  gridImage: { width: '100%', height: 120, resizeMode: 'cover' },
-  gridTextContainer: { padding: 12 },
-  gridCategory: { fontSize: 10, fontWeight: '900', marginBottom: 6, textTransform: 'uppercase' },
-  gridTitle: { fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loginBox: { flex: 1, justifyContent: 'center', padding: 30 },
+  title: { fontSize: 28, fontWeight: '900', color: '#051A44', textAlign: 'center', marginBottom: 5 },
+  subtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 40 },
+  label: { fontSize: 16, fontWeight: '700', color: '#1E293B', marginBottom: 8, marginLeft: 4 },
+  input: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#E2E8F0', fontSize: 16 },
+  button: { backgroundColor: '#051A44', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 10 },
+  buttonText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
+  header: { padding: 20, backgroundColor: '#051A44', borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: 'white' },
+  headerSubtitle: { fontSize: 14, color: '#94A3B8', marginTop: 5 },
+  dashboard: { padding: 20, flex: 1, gap: 15 },
+  actionButton: { backgroundColor: 'white', padding: 20, borderRadius: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0', elevation: 2 },
+  actionIcon: { fontSize: 24, marginRight: 15 },
+  actionText: { fontSize: 18, fontWeight: '700', color: '#1E293B' },
+  logoutButton: { padding: 20, alignItems: 'center' },
+  logoutText: { color: '#DC2626', fontWeight: 'bold', fontSize: 16 },
+  statCard: { backgroundColor: 'white', width: '100%', padding: 30, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#E2E8F0', elevation: 3 },
+  statLabel: { fontSize: 16, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', letterSpacing: 1 },
+  statValue: { fontSize: 64, fontWeight: '900', color: '#051A44', marginVertical: 10 },
+  historyCard: { backgroundColor: 'white', padding: 15, borderRadius: 12, marginBottom: 15, borderWidth: 1, borderColor: '#E2E8F0' },
+  historyTitle: { fontSize: 18, fontWeight: '800', color: '#051A44', marginBottom: 5 },
+  historyMsg: { fontSize: 14, color: '#334155', marginBottom: 10 },
+  historyFooter: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#F1F5F9', paddingTop: 10 },
+  historyDate: { fontSize: 12, color: '#94A3B8' },
+  historyCount: { fontSize: 12, color: '#2563EB', fontWeight: 'bold' },
+  toggleContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#E2E8F0' },
+  toggleText: { fontSize: 16, fontWeight: '600', color: '#1E293B' }
 });
