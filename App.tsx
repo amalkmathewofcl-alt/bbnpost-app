@@ -105,11 +105,23 @@ function HomeScreen({ navigation }: any) {
     async function requestPermissions() {
       if (Device.isDevice) {
         if (Platform.OS === 'android') {
+          // Default Channel
           await Notifications.setNotificationChannelAsync('default', {
             name: 'default',
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#FF231F7C',
+          });
+
+          // 👇 NEW: Emergency Override Channel
+          await Notifications.setNotificationChannelAsync('emergency', {
+            name: 'Emergency Alerts',
+            importance: Notifications.AndroidImportance.MAX,
+            bypassDnd: true, // Tries to bypass Do Not Disturb
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+            sound: 'default', // Android will use its loudest alarm sound
+            vibrationPattern: [0, 1000, 500, 1000, 500, 1000], // Aggressive vibration
+            lightColor: '#FF0000',
           });
         }
 
