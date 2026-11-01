@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   StyleSheet, Text, View, FlatList, Image, TouchableOpacity, 
-  RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform 
+  RefreshControl, StatusBar, ScrollView, Dimensions, Animated, Easing, Alert, Platform, TextInput 
 } from 'react-native';
 import { NavigationContainer, DarkTheme, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -12,8 +12,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 
-// 👇 Firebase Imports
-import { doc, setDoc } from 'firebase/firestore';
+// Firebase Imports
+import { doc, setDoc, getDoc, increment } from 'firebase/firestore'; // 👈 Added increment
 import { db } from './firebase';
 
 import { fetchArticles, Article } from './services/feed';
@@ -49,17 +49,22 @@ const Ticker = ({ title }: { title: string }) => {
   const [textWidth, setTextWidth] = useState(0);
 
   useEffect(() => {
+    let animation: Animated.CompositeAnimation;
     if (textWidth > 0) {
       animatedValue.setValue(width);
-      Animated.loop(
+      animation = Animated.loop(
         Animated.timing(animatedValue, {
           toValue: -textWidth,
           duration: 12000,
           easing: Easing.linear,
           useNativeDriver: true,
         })
-      ).start();
+      );
+      animation.start();
     }
+    return () => {
+      if (animation) animation.stop();
+    };
   }, [textWidth, title]);
 
   return (
@@ -91,9 +96,11 @@ function HomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState('All');
   const [categories, setCategories] = useState<string[]>(['All']);
+  const [searchQuery, setSearchQuery] = useState(''); 
+  const [customTicker, setCustomTicker] = useState<string | null>(null); 
   const { colors, isDark } = useTheme();
 
-  // --- PUSH NOTIFICATIONS LOGIC ---
+  // --- PUSH NOTIFICATIONS & ANALYTICS LOGIC ---
   useEffect(() => {
     async function requestPermissions() {
       if (Device.isDevice) {
@@ -112,69 +119,56 @@ function HomeScreen({ navigation }: any) {
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
-        if (finalStatus !== 'granted') {
-          Alert.alert("Permission Denied", "You won't receive breaking news alerts.");
-          return;
-        }
+        if (finalStatus !== 'granted') return;
 
         try {
           const token = (await Notifications.getExpoPushTokenAsync({
             projectId: '877e51fc-1f50-4aa5-a7cb-ee998188f1fd', 
           })).data;
           
-          // 👇 Save the token to Firestore silently
-          try {
-            await setDoc(doc(db, 'push_tokens', token), {
-              token: token,
-              lastUpdated: new Date(),
-            }, { merge: true });
-            console.log("Token saved to Firestore successfully!");
-          } catch (dbError) {
-            console.error("Error saving token to Firestore:", dbError);
-          }
+          await setDoc(doc(db, 'push_tokens', token), {
+            token: token,
+            lastUpdated: new Date(),
+          }, { merge: true });
 
-          // Check if we have shown the welcome message before
           const hasShownToken = await AsyncStorage.getItem('has_shown_push_token');
-
-          // Only show the alert if it hasn't been shown before
           if (hasShownToken !== 'true') {
-            Alert.alert(
-              "Notifications Enabled! 🔔", 
-              "You will now receive breaking news alerts from The BBN Post."
-            );
-            // Save the flag so it never shows again
+            Alert.alert("Notifications Enabled! 🔔", "You will now receive breaking news alerts from The BBN Post.");
             await AsyncStorage.setItem('has_shown_push_token', 'true');
           }
         } catch (e: any) { 
-          // This will catch any errors
-          Alert.alert("Error", e.message || JSON.stringify(e));
+          console.log("Error getting token:", e);
         }
       }
     }
-    
-    // CALL THE FUNCTION
     requestPermissions();
-  }, []); // CLOSE THE useEffect
+
+    // 👇 NEW: Listen for notification taps and track CTR
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      const alertId = response.notification.request.content.data?.alertId;
+      if (alertId) {
+        const tapRef = doc(db, 'notification_taps', alertId);
+        setDoc(tapRef, { count: increment(1) }, { merge: true }).catch(err => console.log(err));
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   const loadData = async () => {
     try {
       const data = await fetchArticles();
-      
-      if (articles.length > 0 && data.length > 0 && articles[0].id !== data[0].id) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "Breaking News from The BBN Post! 🚨",
-            body: data[0].title,
-            sound: true,
-          },
-          trigger: null,
-        });
-      }
-
       setArticles(data);
       const uniqueCats = new Set<string>();
       data.forEach(article => article.categories.forEach(cat => uniqueCats.add(cat)));
       setCategories(['All', ...Array.from(uniqueCats)]);
+
+      const tickerSnap = await getDoc(doc(db, 'settings', 'ticker'));
+      if (tickerSnap.exists() && tickerSnap.data().text) {
+        setCustomTicker(tickerSnap.data().text);
+      } else {
+        setCustomTicker(null);
+      }
     } catch (error) {
       console.error(error);
     } finally {
@@ -188,44 +182,56 @@ function HomeScreen({ navigation }: any) {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
-  }, [articles]);
+  }, []);
 
-  const filteredArticles = activeCategory === 'All' ? articles : articles.filter(a => a.categories.includes(activeCategory));
+  const filteredArticles = articles.filter(article => {
+    const matchesCategory = activeCategory === 'All' || article.categories.includes(activeCategory);
+    const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+
   const featuredArticle = filteredArticles.length > 0 ? filteredArticles[0] : null;
   const carouselArticles = filteredArticles.slice(1, 6); 
   const gridArticles = filteredArticles.slice(6);
 
   const renderHeader = () => {
-    if (!featuredArticle) return null;
+    if (!featuredArticle && !searchQuery) return null;
     return (
       <View>
-        <TouchableOpacity style={styles.featuredCard} activeOpacity={0.9} onPress={() => navigation.navigate('Article', { article: featuredArticle })}>
-          <Image source={{ uri: featuredArticle.imageUrl || 'https://via.placeholder.com/600x400' }} style={styles.featuredImage} />
-          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.featuredOverlay}>
-            <Text style={styles.featuredCategory}>{featuredArticle.categories[0] || 'BREAKING'}</Text>
-            <Text style={styles.featuredTitle} numberOfLines={3}>{featuredArticle.title}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        {featuredArticle && (
+          <TouchableOpacity style={styles.featuredCard} activeOpacity={0.9} onPress={() => navigation.navigate('Article', { article: featuredArticle })}>
+            <Image source={{ uri: featuredArticle.imageUrl || 'https://via.placeholder.com/600x400' }} style={styles.featuredImage} />
+            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={styles.featuredOverlay}>
+              <Text style={styles.featuredCategory}>{featuredArticle.categories[0] || 'BREAKING'}</Text>
+              <Text style={styles.featuredTitle} numberOfLines={3}>{featuredArticle.title}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
 
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Stories</Text>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={carouselArticles}
-          keyExtractor={item => item.id}
-          contentContainerStyle={{ paddingRight: 16, paddingBottom: 20 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.carouselCard} onPress={() => navigation.navigate('Article', { article: item })}>
-              <Image source={{ uri: item.imageUrl || 'https://via.placeholder.com/200' }} style={styles.carouselImage} />
-              <Text style={[styles.carouselTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
-            </TouchableOpacity>
-          )}
-        />
-
+        {carouselArticles.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Top Stories</Text>
+            <FlatList
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              data={carouselArticles}
+              keyExtractor={item => item.id}
+              contentContainerStyle={{ paddingRight: 16, paddingBottom: 20 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.carouselCard} onPress={() => navigation.navigate('Article', { article: item })}>
+                  <Image source={{ uri: item.imageUrl || 'https://via.placeholder.com/200' }} style={styles.carouselImage} />
+                  <Text style={[styles.carouselTitle, { color: colors.text }]} numberOfLines={2}>{item.title}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </>
+        )}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Latest News</Text>
       </View>
     );
   };
+
+  const tickerText = customTicker || featuredArticle?.title || 'Loading latest headlines...';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -244,7 +250,23 @@ function HomeScreen({ navigation }: any) {
 
       <View style={[styles.tickerContainer, { backgroundColor: colors.primary }]}>
         <Text style={styles.tickerLabel}>LATEST</Text>
-        <Ticker title={featuredArticle?.title || 'Loading latest headlines...'} />
+        <Ticker key={tickerText} title={tickerText} />
+      </View>
+
+      <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Ionicons name="search" size={20} color={colors.subText} style={{ marginLeft: 10 }} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          placeholder="Search news..."
+          placeholderTextColor={colors.subText}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 10 }}>
+            <Ionicons name="close-circle" size={20} color={colors.subText} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <View>
@@ -272,6 +294,13 @@ function HomeScreen({ navigation }: any) {
           numColumns={2}
           columnWrapperStyle={styles.row}
           ListHeaderComponent={renderHeader}
+          ListEmptyComponent={
+            <View style={{ padding: 40, alignItems: 'center' }}>
+              {searchQuery !== '' && (
+                <Text style={{ color: colors.subText, fontSize: 16 }}>No results found for "{searchQuery}"</Text>
+              )}
+            </View>
+          }
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.text} />}
           contentContainerStyle={{ paddingBottom: 100, paddingHorizontal: 16 }}
           renderItem={({ item }) => (
@@ -301,15 +330,9 @@ function MainTabs() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any;
-
-          if (route.name === 'Home') {
-            iconName = focused ? 'home' : 'home-outline';
-          } else if (route.name === 'Saved') {
-            iconName = focused ? 'bookmark' : 'bookmark-outline';
-          } else if (route.name === 'Settings') {
-            iconName = focused ? 'settings' : 'settings-outline';
-          }
-
+          if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
+          else if (route.name === 'Saved') iconName = focused ? 'bookmark' : 'bookmark-outline';
+          else if (route.name === 'Settings') iconName = focused ? 'settings' : 'settings-outline';
           return <Ionicons name={iconName} size={24} color={color} />;
         },
       })}
@@ -370,4 +393,18 @@ const styles = StyleSheet.create({
   gridTextContainer: { padding: 12 },
   gridCategory: { fontSize: 10, fontWeight: '900', marginBottom: 6, textTransform: 'uppercase' },
   gridTitle: { fontSize: 14, fontWeight: '700', lineHeight: 20 },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    fontSize: 15,
+  }
 });

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Image, ScrollView, TouchableOpacity, useWindowDimensions, Share, Animated } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import RenderHtml from 'react-native-render-html';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext';
@@ -14,6 +15,37 @@ export default function ArticleScreen({ route, navigation }: any) {
   const [scrollY, setScrollY] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
   const [screenHeight, setScreenHeight] = useState(0);
+  
+  // Font Size State
+  const [fontSize, setFontSize] = useState(18);
+
+  useEffect(() => {
+    // Load saved font size when the screen opens
+    const loadFontSize = async () => {
+      try {
+        const savedSize = await AsyncStorage.getItem('app_font_size');
+        if (savedSize) {
+          setFontSize(parseInt(savedSize));
+        }
+      } catch (error) {
+        console.log("Error loading font size:", error);
+      }
+    };
+    loadFontSize();
+  }, []);
+
+  const changeFontSize = async (increment: boolean) => {
+    const newSize = increment ? fontSize + 2 : fontSize - 2;
+    // Keep the font size within readable limits (14 to 30)
+    if (newSize >= 14 && newSize <= 30) {
+      setFontSize(newSize);
+      try {
+        await AsyncStorage.setItem('app_font_size', newSize.toString());
+      } catch (error) {
+        console.log("Error saving font size:", error);
+      }
+    }
+  };
 
   const wordCount = (article.content || '').replace(/<[^>]+>/g, '').split(' ').length;
   const readTime = Math.ceil(wordCount / 200) || 1;
@@ -24,7 +56,7 @@ export default function ArticleScreen({ route, navigation }: any) {
   const onShare = async () => {
     try {
       await Share.share({
-        message: `Read this article on The BBN Post: ${article.title}\n\n${article.link}`,
+        message: `📰 Read this exclusive article on The BBN Post App!\n\n"${article.title}"\n\nDownload the app here to read: https://github.com/amalkmathewofcl-alt/bbnpost-app/releases/latest/download/app-release.apk`,
       });
     } catch (error) {
       console.log(error);
@@ -71,16 +103,40 @@ export default function ArticleScreen({ route, navigation }: any) {
           
           <View style={styles.metaRow}>
             <Text style={[styles.date, { color: colors.subText }]}>
-              {new Date(article.published).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} • {readTime} min read
+              {new Date(article.published || Date.now()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })} • {readTime} min read
             </Text>
           </View>
           
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
+          {/* 🟢 FONT SIZE ADJUSTER */}
+          <View style={styles.fontControlsRow}>
+            <Text style={[styles.fontLabel, { color: colors.subText }]}>TEXT SIZE</Text>
+            <View style={styles.fontButtonsContainer}>
+              <TouchableOpacity 
+                style={[styles.fontButton, { borderColor: colors.border }]} 
+                onPress={() => changeFontSize(false)}
+              >
+                <Text style={[styles.fontButtonText, { color: colors.text }]}>A-</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.fontButton, { borderColor: colors.border }]} 
+                onPress={() => changeFontSize(true)}
+              >
+                <Text style={[styles.fontButtonText, { color: colors.text }]}>A+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <RenderHtml
-            contentWidth={width - 40}
+            contentWidth={width - 48}
             source={{ html: article.content || '<p>No content available</p>' }}
-            baseStyle={{ fontSize: 18, color: colors.text, lineHeight: 32, fontWeight: '400' }}
+            baseStyle={{ 
+              fontSize: fontSize, 
+              color: colors.text, 
+              lineHeight: fontSize * 1.6, // Dynamic line height based on font size
+              fontWeight: '400' 
+            }}
           />
         </View>
       </ScrollView>
@@ -99,5 +155,35 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: '800', marginBottom: 16, lineHeight: 40, letterSpacing: -0.5 },
   metaRow: { marginBottom: 24 },
   date: { fontSize: 14, fontWeight: '600' },
-  divider: { height: 1, marginBottom: 24 },
+  divider: { height: 1, marginBottom: 20 },
+  
+  // Styles for Font Size Adjuster
+  fontControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  fontLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  fontButtonsContainer: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  fontButton: {
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 50,
+    alignItems: 'center',
+    backgroundColor: 'rgba(150, 150, 150, 0.1)', 
+  },
+  fontButtonText: {
+    fontWeight: '800',
+    fontSize: 16,
+  },
 });
