@@ -267,20 +267,13 @@ function SendAlertScreen({ navigation }: any) {
   const sendNotification = async () => {
     if (!alertTitle || !alertMessage) return Alert.alert("Error", "Enter title and message.");
     setSending(true);
-    
-    // 👇 Generate unique ID for tracking
     const alertId = Date.now().toString();
 
     try {
       if (scheduleLater) {
         const sendAt = new Date(Date.now() + parseInt(hoursLater) * 60 * 60 * 1000); 
         await addDoc(collection(db, 'scheduled_alerts'), { 
-          alertId, // 👈 Save ID
-          title: alertTitle, 
-          message: alertMessage, 
-          imageUrl: alertImageUrl, 
-          sendAt: sendAt, 
-          status: 'pending' 
+          alertId, title: alertTitle, message: alertMessage, imageUrl: alertImageUrl, sendAt: sendAt, status: 'pending' 
         });
         Alert.alert("Scheduled! ⏰", `Alert will be sent in ${hoursLater} hour(s).`);
         navigation.goBack();
@@ -295,9 +288,8 @@ function SendAlertScreen({ navigation }: any) {
       if (targetTokens.length === 0) { Alert.alert("No Devices"); setSending(false); return; }
 
       const messages = targetTokens.map(token => {
-        const msg: any = { to: token, title: alertTitle, body: alertMessage, sound: 'default' };
+        const msg: any = { to: token, title: alertTitle, body: alertMessage, sound: 'default', data: { alertId } };
         if (alertImageUrl) msg.image = alertImageUrl; 
-        msg.data = { alertId }; // 👈 Send ID in payload for tracking
         return msg;
       });
 
@@ -307,12 +299,7 @@ function SendAlertScreen({ navigation }: any) {
 
       if (response.ok) {
         if (!testMode) await addDoc(collection(db, 'alert_history'), { 
-          alertId, // 👈 Save ID to match taps
-          title: alertTitle, 
-          message: alertMessage, 
-          imageUrl: alertImageUrl, 
-          sentAt: serverTimestamp(), 
-          deviceCount: targetTokens.length 
+          alertId, title: alertTitle, message: alertMessage, imageUrl: alertImageUrl, sentAt: serverTimestamp(), deviceCount: targetTokens.length 
         });
         Alert.alert("Success 🚀", testMode ? "Test sent!" : `Sent to ${targetTokens.length} devices!`);
         navigation.goBack();
@@ -378,7 +365,6 @@ function AlertHistoryScreen({ navigation }: any) {
         const querySnapshot = await getDocs(q);
         const historyData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // 👇 Fetch tap counts for each alert
         const withTaps = await Promise.all(historyData.map(async (item: any) => {
           if (item.alertId) {
             const tapDoc = await getDoc(doc(db, 'notification_taps', item.alertId));

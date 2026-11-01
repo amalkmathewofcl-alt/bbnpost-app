@@ -1,48 +1,58 @@
-// Your custom Cloudflare Worker Proxy
-const PROXY_URL = 'https://bbn-proxy.amalkmathewofcl.workers.dev/?url=';
-const TARGET_URL = 'https://www.thebbnpost.in/feeds/posts/default?alt=json&max-results=20';
+import { createClient } from '@sanity/client';
 
-const FEED_URL = PROXY_URL + encodeURIComponent(TARGET_URL);
+const client = createClient({
+  projectId: 'g2yvs59l', // 👈 Your Project ID
+  dataset: 'production',
+  useCdn: true,
+  apiVersion: '2024-01-01',
+});
 
-export type Article = {
+export interface Article {
   id: string;
   title: string;
-  link: string;
-  published: string;
-  content: string;
-  imageUrl: string | null;
+  imageUrl?: string;
   categories: string[];
-};
+  content?: string; // 👈 Changed to 'content' to match your App UI
+  date?: string;
+}
 
-export async function fetchArticles(): Promise<Article[]> {
+export const fetchArticles = async (): Promise<Article[]> => {
+  const query = `*[_type == "article"] | order(publishedAt desc) {
+    "id": _id,
+    title,
+    "imageUrl": mainImage.asset->url,
+    "categories": [category],
+    "date": publishedAt,
+    body
+  }`;
+
   try {
-    const res = await fetch(FEED_URL);
-    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const data = await client.fetch(query);
     
-    const data = await res.json();
-    
-    if (!data.feed || !data.feed.entry) return [];
-
-    return data.feed.entry.map((entry: any) => {
-      const link = entry.link.find((l: any) => l.rel === 'alternate')?.href || '';
-      
-      let imageUrl = entry.media$thumbnail?.url || null;
-      if (imageUrl) {
-        imageUrl = imageUrl.replace('/s72-c/', '/s400/');
+    return data.map((item: any) => {
+      // 👇 Convert Sanity's Rich Text into an HTML string
+      let htmlContent = '<p>No content available</p>';
+      if (item.body && Array.isArray(item.body)) {
+        htmlContent = item.body.map((block: any) => {
+          if (block._type === 'block' && block.children) {
+            const text = block.children.map((child: any) => child.text).join('');
+            return `<p>${text}</p>`;
+          }
+          return '';
+        }).join('');
       }
 
       return {
-        id: entry.id.$t,
-        title: entry.title.$t,
-        link: link,
-        published: entry.published.$t,
-        content: entry.content?.$t || entry.summary?.$t || '',
-        imageUrl: imageUrl,
-        categories: entry.category?.map((c: any) => c.term) || [],
+        id: item.id,
+        title: item.title,
+        imageUrl: item.imageUrl || 'https://via.placeholder.com/600x400',
+        categories: item.categories[0] ? [item.categories[0]] : ['NEWS'],
+        content: htmlContent, // 👈 Pass the HTML string to the app
+        date: item.date
       };
     });
   } catch (error) {
-    console.error("Error fetching feed:", error);
+    console.error("Error fetching from Sanity:", error);
     return [];
   }
-}
+};
