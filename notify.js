@@ -97,6 +97,11 @@ async function checkFeed() {
     // ==========================================
     // PART 2: CHECK BLOGGER RSS FEED
     // ==========================================
+    const settingsDoc = await db.collection('settings').doc('automation').get();
+    if (settingsDoc.exists && settingsDoc.data().isPaused) {
+      console.log('🛑 Auto-Blogger notifications are PAUSED via Admin App. Skipping RSS check.');
+      return;
+    }
     const res = await fetch(RSS_URL);
     const data = await res.json();
 
