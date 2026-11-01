@@ -2,7 +2,7 @@ module.exports = {
   expo: {
     name: "THE BBN POST Admin",
     slug: "bbnpost-admin",
-    version: "1.0.0",
+    version: "1.0.1",
     orientation: "portrait",
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
