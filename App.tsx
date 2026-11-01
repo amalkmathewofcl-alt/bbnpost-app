@@ -10,12 +10,10 @@ import { auth, db } from './firebase';
 import * as LocalAuthentication from 'expo-local-authentication';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 👇 PASTE YOUR AQ. GEMINI API KEY HERE
-const GEMINI_API_KEY = "AQ.Ab8RN6J52LzcFNl7yNip3SlSf5Ay0pQKqyBf9lByGGnO-W4RQQ"; 
-
+const OPENROUTER_API_KEY = "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"; 
 const Stack = createNativeStackNavigator();
 
-// --- LOGIN SCREEN (With Biometrics) ---
+// --- LOGIN SCREEN ---
 function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -118,9 +116,15 @@ function DashboardScreen({ navigation }: any) {
             <Switch value={!isAutomationPaused} onValueChange={toggleSwitch} trackColor={{ false: "#FCA5A5", true: "#6EE7B7" }} />
           }
         </View>
+        
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('SendAlert')}>
           <Text style={styles.actionIcon}>🚨</Text><Text style={styles.actionText}>Send Alert</Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('UpdateTicker')}>
+          <Text style={styles.actionIcon}>📰</Text><Text style={styles.actionText}>Update Live Ticker</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionButton} onPress={() => navigation.navigate('IntelRadar')}>
           <Text style={styles.actionIcon}>📡</Text><Text style={styles.actionText}>Intel Radar</Text>
         </TouchableOpacity>
@@ -136,42 +140,89 @@ function DashboardScreen({ navigation }: any) {
   );
 }
 
-// --- INTEL RADAR SCREEN ---
-function IntelRadarScreen({ navigation }: any) {
-  const [news, setNews] = useState<any[]>([]);
+// --- UPDATE TICKER SCREEN ---
+function UpdateTickerScreen({ navigation }: any) {
+  const [tickerText, setTickerText] = useState('');
   const [loading, setLoading] = useState(true);
-  const COMPETITOR_RSS = "https://news.google.com/rss/search?q=Barbil+Odisha&hl=en-IN&gl=IN&ceid=IN:en";
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const fetchIntel = async () => {
+    const fetchTicker = async () => {
       try {
-        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(COMPETITOR_RSS)}`);
-        const data = await res.json();
-        if (data.items) setNews(data.items);
-      } catch (error) {} finally { setLoading(false); }
+        const docSnap = await getDoc(doc(db, 'settings', 'ticker'));
+        if (docSnap.exists()) setTickerText(docSnap.data().text);
+      } catch (error) {
+        console.log("Error fetching ticker:", error);
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchIntel();
+    fetchTicker();
   }, []);
+
+  const saveTicker = async () => {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'ticker'), { text: tickerText });
+      Alert.alert("Success 🚀", "Live ticker updated instantly on all devices!");
+      navigation.goBack();
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearTicker = async () => {
+    setSaving(true);
+    try {
+      await setDoc(doc(db, 'settings', 'ticker'), { text: "" });
+      setTickerText("");
+      Alert.alert("Cleared", "Ticker reverted to default behavior.");
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}><Text style={{ color: '#94A3B8' }}>← Back</Text></TouchableOpacity>
-        <Text style={styles.headerTitle}>Intel Radar 📡</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}>
+          <Text style={{ color: '#94A3B8', fontSize: 16 }}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Update Live Ticker</Text>
       </View>
-      {loading ? <ActivityIndicator size="large" style={{ marginTop: 50 }} /> : (
-        <FlatList data={news} keyExtractor={(item, i) => i.toString()} contentContainerStyle={{ padding: 20 }} renderItem={({ item }) => (
-          <View style={styles.historyCard}>
-            <Text style={styles.historyTitle}>{item.title}</Text>
-            <Text style={styles.historyDate}>{new Date(item.pubDate).toLocaleString()}</Text>
-          </View>
-        )} />
-      )}
+      <View style={{ padding: 20 }}>
+        {loading ? (
+          <ActivityIndicator size="large" color="#051A44" />
+        ) : (
+          <>
+            <Text style={styles.label}>Ticker Message</Text>
+            <Text style={styles.subtitle}>This will immediately replace the scrolling text at the top of the Public App.</Text>
+            <TextInput
+              style={[styles.input, { height: 100, textAlignVertical: 'top' }]}
+              placeholder="e.g., ⚠️ Heavy rain expected in Barbil tonight..."
+              value={tickerText}
+              onChangeText={setTickerText}
+              multiline
+            />
+            <TouchableOpacity style={styles.button} onPress={saveTicker} disabled={saving}>
+              {saving ? <ActivityIndicator color="white" /> : <Text style={styles.buttonText}>Publish Ticker Update</Text>}
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={[styles.button, { backgroundColor: '#475569', marginTop: 15 }]} onPress={clearTicker} disabled={saving}>
+              <Text style={styles.buttonText}>Clear Ticker (Show Latest News)</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </SafeAreaView>
   );
 }
 
-// --- SEND ALERT SCREEN (With Gemini AI Polisher & Rich Image) ---
+// --- SEND ALERT SCREEN ---
 function SendAlertScreen({ navigation }: any) {
   const [alertTitle, setAlertTitle] = useState('');
   const [alertMessage, setAlertMessage] = useState('');
@@ -182,45 +233,55 @@ function SendAlertScreen({ navigation }: any) {
   const [scheduleLater, setScheduleLater] = useState(false);
   const [hoursLater, setHoursLater] = useState('1'); 
 
-  // 🪄 GEMINI AI POLISHER
   const polishWithAI = async () => {
     if (!alertMessage) return Alert.alert("Empty", "Type a message first.");
     setPolishing(true);
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`, {
+      const response = await fetch(`https://openrouter.ai/api/v1/chat/completions`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GEMINI_API_KEY}` // 👈 Sending AQ. key as Bearer
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://www.thebbnpost.in',
+          'X-Title': 'The BBN Post Admin'
         },
         body: JSON.stringify({
-          contents: [{
-            parts: [{ text: `Rewrite this into a professional, urgent news alert: "${alertMessage}"` }]
-          }]
+          model: "openrouter/free", 
+          messages: [
+            { role: "system", content: "You are a professional news editor for The BBN Post. Rewrite the user's rough note into a highly professional, urgent, and concise breaking news alert (max 2 sentences)." },
+            { role: "user", content: alertMessage }
+          ]
         })
       });
       const data = await response.json();
-      
-      if (data.candidates && data.candidates[0].content.parts[0].text) {
-        setAlertMessage(data.candidates[0].content.parts[0].text.trim());
+      if (data.choices && data.choices[0].message.content) {
+        setAlertMessage(data.choices[0].message.content.trim());
       } else {
-        console.log("Gemini Error Details:", data);
-        Alert.alert("AI Error", data.error?.message || "Could not polish text. Check your API key.");
+        Alert.alert("AI Error", data.error?.message || "Could not polish text.");
       }
     } catch (error) { 
-      Alert.alert("Network Error", "AI failed. Check your internet connection."); 
-    } finally { 
-      setPolishing(false); 
-    }
+      Alert.alert("Network Error", "AI failed."); 
+    } finally { setPolishing(false); }
   };
 
   const sendNotification = async () => {
     if (!alertTitle || !alertMessage) return Alert.alert("Error", "Enter title and message.");
     setSending(true);
+    
+    // 👇 Generate unique ID for tracking
+    const alertId = Date.now().toString();
+
     try {
       if (scheduleLater) {
         const sendAt = new Date(Date.now() + parseInt(hoursLater) * 60 * 60 * 1000); 
-        await addDoc(collection(db, 'scheduled_alerts'), { title: alertTitle, message: alertMessage, imageUrl: alertImageUrl, sendAt: sendAt, status: 'pending' });
+        await addDoc(collection(db, 'scheduled_alerts'), { 
+          alertId, // 👈 Save ID
+          title: alertTitle, 
+          message: alertMessage, 
+          imageUrl: alertImageUrl, 
+          sendAt: sendAt, 
+          status: 'pending' 
+        });
         Alert.alert("Scheduled! ⏰", `Alert will be sent in ${hoursLater} hour(s).`);
         navigation.goBack();
         return;
@@ -236,6 +297,7 @@ function SendAlertScreen({ navigation }: any) {
       const messages = targetTokens.map(token => {
         const msg: any = { to: token, title: alertTitle, body: alertMessage, sound: 'default' };
         if (alertImageUrl) msg.image = alertImageUrl; 
+        msg.data = { alertId }; // 👈 Send ID in payload for tracking
         return msg;
       });
 
@@ -244,7 +306,14 @@ function SendAlertScreen({ navigation }: any) {
       });
 
       if (response.ok) {
-        if (!testMode) await addDoc(collection(db, 'alert_history'), { title: alertTitle, message: alertMessage, imageUrl: alertImageUrl, sentAt: serverTimestamp(), deviceCount: targetTokens.length });
+        if (!testMode) await addDoc(collection(db, 'alert_history'), { 
+          alertId, // 👈 Save ID to match taps
+          title: alertTitle, 
+          message: alertMessage, 
+          imageUrl: alertImageUrl, 
+          sentAt: serverTimestamp(), 
+          deviceCount: targetTokens.length 
+        });
         Alert.alert("Success 🚀", testMode ? "Test sent!" : `Sent to ${targetTokens.length} devices!`);
         navigation.goBack();
       } else { Alert.alert("Error", "Failed to send."); }
@@ -301,12 +370,29 @@ function SendAlertScreen({ navigation }: any) {
 function AlertHistoryScreen({ navigation }: any) {
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  
   useEffect(() => {
     const fetchHistory = async () => {
-      const q = query(collection(db, 'alert_history'), orderBy('sentAt', 'desc'));
-      const querySnapshot = await getDocs(q);
-      setHistory(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
+      try {
+        const q = query(collection(db, 'alert_history'), orderBy('sentAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const historyData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // 👇 Fetch tap counts for each alert
+        const withTaps = await Promise.all(historyData.map(async (item: any) => {
+          if (item.alertId) {
+            const tapDoc = await getDoc(doc(db, 'notification_taps', item.alertId));
+            return { ...item, taps: tapDoc.exists() ? tapDoc.data().count : 0 };
+          }
+          return { ...item, taps: 0 };
+        }));
+
+        setHistory(withTaps);
+      } catch (error) {
+        console.log(error);
+      } finally {
+        setLoading(false);
+      }
     };
     fetchHistory();
   }, []);
@@ -315,14 +401,56 @@ function AlertHistoryScreen({ navigation }: any) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}><Text style={{ color: '#94A3B8' }}>← Back</Text></TouchableOpacity>
-        <Text style={styles.headerTitle}>Alert History</Text>
+        <Text style={styles.headerTitle}>Alert History & CTR</Text>
       </View>
       {loading ? <ActivityIndicator size="large" style={{ marginTop: 50 }} /> : (
         <FlatList data={history} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} renderItem={({ item }) => (
           <View style={styles.historyCard}>
             <Text style={styles.historyTitle}>{item.title}</Text>
             <Text style={styles.historyMsg}>{item.message}</Text>
-            <Text style={styles.historyDate}>{item.sentAt ? new Date(item.sentAt.seconds * 1000).toLocaleString() : ''}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, borderTopWidth: 1, borderColor: '#F1F5F9', paddingTop: 10 }}>
+              <Text style={styles.historyDate}>
+                {item.sentAt ? new Date(item.sentAt.seconds * 1000).toLocaleString() : ''}
+              </Text>
+              <Text style={{ fontSize: 12, color: '#10B981', fontWeight: 'bold' }}>
+                📱 {item.deviceCount} Sent  |  👆 {item.taps} Taps
+              </Text>
+            </View>
+          </View>
+        )} />
+      )}
+    </SafeAreaView>
+  );
+}
+
+// --- INTEL RADAR SCREEN ---
+function IntelRadarScreen({ navigation }: any) {
+  const [news, setNews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const COMPETITOR_RSS = "https://news.google.com/rss/search?q=Barbil+Odisha&hl=en-IN&gl=IN&ceid=IN:en";
+
+  useEffect(() => {
+    const fetchIntel = async () => {
+      try {
+        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(COMPETITOR_RSS)}`);
+        const data = await res.json();
+        if (data.items) setNews(data.items);
+      } catch (error) {} finally { setLoading(false); }
+    };
+    fetchIntel();
+  }, []);
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginBottom: 10 }}><Text style={{ color: '#94A3B8' }}>← Back</Text></TouchableOpacity>
+        <Text style={styles.headerTitle}>Intel Radar 📡</Text>
+      </View>
+      {loading ? <ActivityIndicator size="large" style={{ marginTop: 50 }} /> : (
+        <FlatList data={news} keyExtractor={(item, i) => i.toString()} contentContainerStyle={{ padding: 20 }} renderItem={({ item }) => (
+          <View style={styles.historyCard}>
+            <Text style={styles.historyTitle}>{item.title}</Text>
+            <Text style={styles.historyDate}>{new Date(item.pubDate).toLocaleString()}</Text>
           </View>
         )} />
       )}
@@ -405,6 +533,7 @@ export default function App() {
         {user ? (
           <>
             <Stack.Screen name="Dashboard" component={DashboardScreen} />
+            <Stack.Screen name="UpdateTicker" component={UpdateTickerScreen} />
             <Stack.Screen name="SendAlert" component={SendAlertScreen} />
             <Stack.Screen name="IntelRadar" component={IntelRadarScreen} />
             <Stack.Screen name="AlertHistory" component={AlertHistoryScreen} />
@@ -421,7 +550,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loginBox: { flex: 1, justifyContent: 'center', padding: 30 },
   title: { fontSize: 28, fontWeight: '900', color: '#051A44', textAlign: 'center', marginBottom: 5 },
-  subtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 40 },
+  subtitle: { fontSize: 14, color: '#64748B', textAlign: 'center', marginBottom: 20 },
   label: { fontSize: 16, fontWeight: '700', color: '#1E293B', marginBottom: 8, marginLeft: 4 },
   input: { backgroundColor: 'white', padding: 15, borderRadius: 10, marginBottom: 20, borderWidth: 1, borderColor: '#E2E8F0', fontSize: 16 },
   button: { backgroundColor: '#051A44', padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 10 },
