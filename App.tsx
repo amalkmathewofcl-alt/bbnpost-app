@@ -13,7 +13,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 
 // Firebase Imports
-import { doc, setDoc, getDoc, increment } from 'firebase/firestore'; // 👈 Added increment
+import { doc, setDoc, getDoc, increment } from 'firebase/firestore'; 
 import { db } from './firebase';
 
 import { fetchArticles, Article } from './services/feed';
@@ -100,7 +100,7 @@ function HomeScreen({ navigation }: any) {
   const [customTicker, setCustomTicker] = useState<string | null>(null); 
   const { colors, isDark } = useTheme();
 
-  // --- PUSH NOTIFICATIONS & ANALYTICS LOGIC ---
+  // --- PUSH NOTIFICATIONS & CTR TRACKING ---
   useEffect(() => {
     async function requestPermissions() {
       if (Device.isDevice) {
@@ -143,7 +143,7 @@ function HomeScreen({ navigation }: any) {
     }
     requestPermissions();
 
-    // 👇 NEW: Listen for notification taps and track CTR
+    // CTR Tracking listener
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const alertId = response.notification.request.content.data?.alertId;
       if (alertId) {
@@ -226,6 +226,7 @@ function HomeScreen({ navigation }: any) {
             />
           </>
         )}
+
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Latest News</Text>
       </View>
     );

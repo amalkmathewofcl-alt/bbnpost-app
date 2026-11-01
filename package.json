@@ -15,6 +15,7 @@
     "expo-device": "~58.0.5",
     "expo-font": "~58.0.10",
     "expo-linear-gradient": "~58.0.3",
+    "expo-local-authentication": "~58.0.2",
     "expo-notifications": "~58.1.6",
     "expo-status-bar": "~58.0.4",
     "firebase": "^13.1.0",
